@@ -77,13 +77,17 @@ Páginas: `login`, `dashboard`, `clients`, `matrices`, `matrix-detail`, `vps`, `
 - ✅ Build verificado: `npm install` + `prisma generate` + `nest build` ✅
 - ✅ Tests: 35/42 passed (7 flaky pre-existentes)
 - ✅ Push a GitHub
+- ✅ Deploy en VPS: PM2 + Nginx migrados a `~/nexo-hub`
+- ✅ CI/CD configurado con GitHub Actions (password auth)
+- ✅ BD Panel limpiada — empezamos de cero
+- ✅ Workflows, CONTEXT.md, TAREAS.md creados
 
 ---
 
 ## 🚀 Próximos Pasos
 
-1. 🔴 **Deploy en VPS**: Clonar `nexo-hub` en VPS principal, migrar PM2 + Nginx
-2. 🔴 **Provisioning E2E**: Provisionar una matriz de prueba con `nexo-core`
+1. 🔴 **Extraer extensiones**: Separar canales y plugins de `nexo-core` a repos independientes
+2. 🔴 **Provisionar primera matriz** de prueba con `nexo-core`
 3. 🟡 **Billing/Stripe**: Cobros automáticos por plan
 4. 🟡 **Dashboard métricas reales**: Transicionar del Demo Mode
-5. 🟢 **Archivar `Plantilla-Agente`** en GitHub
+5. 🟢 **Borrar `~/Matriz-Agente`** del VPS y archivar repo en GitHub
