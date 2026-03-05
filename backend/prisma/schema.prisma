@@ -1,0 +1,402 @@
+// ============================================
+// Panel de Control — Prisma Schema
+// ============================================
+// Gestión de clientes, VPS y matrices
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---- Enums ----
+
+enum ClientPlan {
+  FREE
+  PERSONAL
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum ClientStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum VpsProvider {
+  OVH
+  CONTABO
+  HETZNER
+  OTHER
+}
+
+enum VpsStatus {
+  ACTIVE
+  FULL
+  MAINTENANCE
+  OFFLINE
+}
+
+enum MatrixStatus {
+  PROVISIONING
+  ACTIVE
+  SUSPENDED
+  ERROR
+  UPDATING
+  MIGRATING
+  DELETED
+}
+
+enum ProvisioningStep {
+  PREPARE_VPS
+  SELECT_VPS
+  CLONE_REPO
+  GENERATE_ENV
+  GENERATE_COMPOSE
+  DOCKER_UP
+  CREATE_DNS
+  CONFIGURE_SSL
+  CONFIGURE_NGINX
+  HEALTH_CHECK
+  CREATE_ADMIN
+  SYNC_PLUGINS
+  SYNC_PACKAGES
+  DONE
+  ERROR
+}
+
+enum StepStatus {
+  PENDING
+  RUNNING
+  OK
+  FAILED
+  SKIPPED
+}
+
+// ---- Models ----
+
+model Client {
+  id                   String       @id @default(uuid()) @db.Uuid
+  name                 String
+  email                String       @unique
+  company              String?
+  phone                String?
+  plan                 ClientPlan   @default(STARTER)
+  status               ClientStatus @default(ACTIVE)
+  stripeCustomerId     String?      @unique
+  stripeSubscriptionId String?
+  notes                String?
+  metadata             Json?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  deletedAt            DateTime?
+
+  matrices MatrixInstance[]
+  packageAccess PackageAccess[]
+
+  @@map("clients")
+}
+
+model VpsNode {
+  id           String      @id @default(uuid()) @db.Uuid
+  name         String      @unique
+  host         String
+  ip           String?
+  sshUser      String      @default("ubuntu")
+  sshKeyPath   String      @default("~/.ssh/panel_deploy_key")
+  sshPort      Int         @default(22)
+  provider     VpsProvider @default(OVH)
+  region       String?
+  maxMatrices  Int         @default(3)
+  currentLoad  Int         @default(0)
+  status       VpsStatus   @default(ACTIVE)
+  diskTotalGb  Float?
+  diskUsedGb   Float?
+  ramTotalMb   Int?
+  ramUsedMb    Int?
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  matrices MatrixInstance[]
+
+  @@map("vps_nodes")
+}
+
+model MatrixInstance {
+  id                String       @id @default(uuid()) @db.Uuid
+  clientId          String       @db.Uuid
+  vpsNodeId         String       @db.Uuid
+  slug              String       @unique
+  subdomain         String       @unique
+  slotIndex         Int
+
+  // Database credentials (encrypted at rest)
+  dbName            String
+  dbUser            String
+  dbPassword        String
+
+  // n8n credentials
+  n8nUser           String       @default("admin")
+  n8nPassword       String
+
+  // Supabase
+  supabaseProjectId String?
+  adminSupabaseId   String?
+
+  // Git
+  gitBranch         String       @default("main")
+  gitCommit         String?
+  dockerComposeDir  String
+
+  // Ports (derived from slotIndex)
+  portBackend       Int
+  portFrontend      Int
+  portDb            Int
+  portRedis         Int
+  portN8n           Int
+  portAdminer       Int
+
+  // Status
+  status            MatrixStatus @default(PROVISIONING)
+  healthLastCheck   DateTime?
+  healthStatus      String?
+
+  // Logs
+  provisionLog      String?
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  client            Client       @relation(fields: [clientId], references: [id])
+  vpsNode           VpsNode      @relation(fields: [vpsNodeId], references: [id])
+  events            ProvisioningEvent[]
+  modules           MatrixModule[]
+  packages          MatrixPackage[]
+
+  @@unique([vpsNodeId, slotIndex])
+  @@map("matrix_instances")
+}
+
+model ProvisioningEvent {
+  id         String           @id @default(uuid()) @db.Uuid
+  matrixId   String           @db.Uuid
+  step       ProvisioningStep
+  status     StepStatus       @default(PENDING)
+  message    String?
+  durationMs Int?
+  createdAt  DateTime         @default(now())
+
+  matrix     MatrixInstance   @relation(fields: [matrixId], references: [id])
+
+  @@map("provisioning_events")
+}
+
+// ---- Plugin Marketplace ----
+
+enum PluginStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model PluginTemplate {
+  id                String       @id @default(uuid()) @db.Uuid
+  name              String       @unique
+  version           String       @default("1.0.0")
+  description       String
+  author            String       @default("Strategia Laboratory")
+  icon              String?
+  tags              String[]     @default([])
+
+  // Plugin code (TypeScript source)
+  code              String       @db.Text
+
+  // Configuration schema (JSON Schema for settings)
+  configSchema      Json?
+
+  // Supported channels
+  supportedChannels String[]     @default([])
+
+  // Status
+  status            PluginStatus @default(DRAFT)
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@map("plugin_templates")
+}
+
+// ---- Module System ----
+
+model ModuleDefinition {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  version     String   @default("1.0.0")
+  category    String?
+  isCore      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  matrices    MatrixModule[]
+
+  @@map("module_definitions")
+}
+
+model MatrixModule {
+  id         String   @id @default(uuid()) @db.Uuid
+  matrixId   String   @db.Uuid
+  moduleId   String   @db.Uuid
+  enabledAt  DateTime @default(now())
+
+  matrix     MatrixInstance   @relation(fields: [matrixId], references: [id])
+  module     ModuleDefinition @relation(fields: [moduleId], references: [id])
+
+  @@unique([matrixId, moduleId])
+  @@map("matrix_modules")
+}
+
+// ---- Audit Logs ----
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  action    String   // CREATE, UPDATE, DELETE, PROVISION, SUSPEND, LOGIN, etc.
+  entity    String   // client, matrix, vpsNode, plugin, etc.
+  entityId  String?  // UUID of affected resource
+  details   Json?    // { old, new, changes, message }
+  ip        String?  // Request IP address
+  createdAt DateTime @default(now())
+
+  @@index([entity, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ---- Worker Fleet ----
+
+enum WorkerStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+model WorkerNode {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String       @unique
+  host            String       // Private WireGuard IP (10.0.0.x)
+  apiPort         Int          @default(8080)
+  status          WorkerStatus @default(OFFLINE)
+  lastHeartbeat   DateTime?
+  cpuCores        Int?
+  ramTotalMb      Int?
+  ramUsedMb       Int?
+  activeJobs      Int          @default(0)
+  totalProcessed  Int          @default(0)
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("worker_nodes")
+}
+
+// ---- Package Catalog (Extensiones unificadas) ----
+
+enum PackageType {
+  CHANNEL
+  CONNECTOR
+  MODULE
+  PLUGIN
+  SKILL
+}
+
+enum PackageVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum PricingModel {
+  FREE
+  INCLUDED_IN_TIER
+  MONTHLY
+  ONE_TIME
+}
+
+model PackageCatalog {
+  id          String            @id @default(uuid()) @db.Uuid
+  name        String            @unique
+  displayName String
+  type        PackageType
+  version     String            @default("1.0.0")
+  description String?
+  icon        String?
+  repoUrl     String
+  author      String            @default("Estrategia Labs")
+  category    String?
+  isCore      Boolean           @default(false)
+  visibility  PackageVisibility @default(PUBLIC)
+  price       Decimal           @default(0)
+  pricingModel PricingModel     @default(FREE)
+  stripePriceId String?
+  status      PluginStatus      @default(PUBLISHED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  installations  MatrixPackage[]
+  allowedClients PackageAccess[]
+
+  @@map("package_catalog")
+}
+
+model MatrixPackage {
+  id          String   @id @default(uuid()) @db.Uuid
+  matrixId    String   @db.Uuid
+  packageId   String   @db.Uuid
+  version     String   @default("1.0.0")
+  status      String   @default("installed") // installed, error, updating
+  installedAt DateTime @default(now())
+
+  matrix      MatrixInstance @relation(fields: [matrixId], references: [id])
+  package     PackageCatalog @relation(fields: [packageId], references: [id])
+
+  @@unique([matrixId, packageId])
+  @@map("matrix_packages")
+}
+
+model PackageAccess {
+  id        String         @id @default(uuid()) @db.Uuid
+  packageId String         @db.Uuid
+  clientId  String         @db.Uuid
+  createdAt DateTime       @default(now())
+
+  package   PackageCatalog @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  client    Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, clientId])
+  @@map("package_access")
+}
+
+model PricingTier {
+  id              String     @id @default(uuid()) @db.Uuid
+  name            ClientPlan @unique
+  displayName     String
+  price           Decimal    @default(0)
+  billingPeriod   String     @default("monthly")  // monthly, yearly
+  description     String?
+  maxUsers        Int        @default(1)
+  maxExtensions   Int        @default(0)
+  stripePriceId   String?
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@map("pricing_tiers")
+}
