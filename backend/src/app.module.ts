@@ -16,6 +16,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { WorkersModule } from './workers/workers.module';
 import { PricingModule } from './pricing/pricing.module';
+import { OvhModule } from './ovh';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { PricingModule } from './pricing/pricing.module';
     AuditModule,
     WorkersModule,
     PricingModule,
+    OvhModule,
   ],
   controllers: [AppController],
   providers: [
