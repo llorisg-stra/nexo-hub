@@ -77,4 +77,18 @@ export class OvhController {
     getDedicatedDetails(@Param('name') name: string) {
         return this.ovh.getDedicatedServerDetails(name);
     }
+
+    // ── SSH Keys ─────────────────────────────────────────────
+
+    /** GET /api/ovh/ssh-keys — List registered SSH keys */
+    @Get('ssh-keys')
+    listSshKeys() {
+        return this.ovh.listSshKeys();
+    }
+
+    /** GET /api/ovh/ssh-keys/:name — Get a specific SSH key */
+    @Get('ssh-keys/:name')
+    getSshKey(@Param('name') name: string) {
+        return this.ovh.getSshKey(name);
+    }
 }

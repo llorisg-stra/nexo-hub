@@ -1,5 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 // The 'ovh' package doesn't ship TS types
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -35,15 +38,22 @@ export interface OvhVpsMonitoring {
     netTx: { timestamp: number; value: number }[];
 }
 
+export interface OvhSshKey {
+    keyName: string;
+    key: string;
+    default: boolean;
+}
+
 // ── Service ─────────────────────────────────────────────────
 @Injectable()
 export class OvhService implements OnModuleInit {
     private readonly logger = new Logger(OvhService.name);
     private client: any;
+    private sshKeyName = 'nexo-hub-deploy';
 
     constructor(private readonly config: ConfigService) { }
 
-    onModuleInit() {
+    async onModuleInit() {
         const appKey = this.config.get<string>('OVH_APP_KEY');
         const appSecret = this.config.get<string>('OVH_APP_SECRET');
         const consumerKey = this.config.get<string>('OVH_CONSUMER_KEY');
@@ -61,6 +71,9 @@ export class OvhService implements OnModuleInit {
         });
 
         this.logger.log('OVH API client initialized');
+
+        // Auto-register SSH key if not already present
+        await this.ensureSshKeyRegistered();
     }
 
     private ensureClient() {
@@ -161,12 +174,19 @@ export class OvhService implements OnModuleInit {
             .map(r => r.value);
     }
 
-    /** Reinstall a VPS with a specific image */
+    /** Reinstall a VPS with a specific image + auto SSH key */
     async reinstallVps(serviceName: string, imageId: string): Promise<any> {
         this.logger.warn(`Reinstalling VPS ${serviceName} with image ${imageId}`);
-        return this.request('POST', `/vps/${serviceName}/reinstall`, {
-            imageId,
-        });
+
+        // Try to include SSH key for passwordless access
+        const sshKey = await this.getSshKey(this.sshKeyName).catch(() => null);
+        const payload: any = { imageId };
+        if (sshKey) {
+            payload.sshKey = sshKey.keyName;
+            this.logger.log(`Including SSH key '${sshKey.keyName}' in reinstall`);
+        }
+
+        return this.request('POST', `/vps/${serviceName}/reinstall`, payload);
     }
 
     /** Reboot a VPS via OVH API (hard reboot) */
@@ -190,5 +210,67 @@ export class OvhService implements OnModuleInit {
     /** Get dedicated server details */
     async getDedicatedServerDetails(serviceName: string): Promise<any> {
         return this.request('GET', `/dedicated/server/${serviceName}`);
+    }
+
+    // ── SSH Key Management ──────────────────────────────────
+
+    /** List all SSH keys registered in OVH account */
+    async listSshKeys(): Promise<string[]> {
+        return this.request('GET', '/me/sshKey');
+    }
+
+    /** Get a specific SSH key by name */
+    async getSshKey(keyName: string): Promise<OvhSshKey> {
+        return this.request('GET', `/me/sshKey/${keyName}`);
+    }
+
+    /** Register a new SSH key in OVH account */
+    async registerSshKey(keyName: string, publicKey: string): Promise<OvhSshKey> {
+        this.logger.log(`Registering SSH key '${keyName}' in OVH account`);
+        return this.request('POST', '/me/sshKey', {
+            keyName,
+            key: publicKey,
+        });
+    }
+
+    /** Delete an SSH key from OVH account */
+    async deleteSshKey(keyName: string): Promise<void> {
+        return this.request('DELETE', `/me/sshKey/${keyName}`);
+    }
+
+    /** Read local SSH public key */
+    getLocalPublicKey(): string | null {
+        const paths = [
+            join(homedir(), '.ssh', 'id_ed25519.pub'),
+            join(homedir(), '.ssh', 'id_rsa.pub'),
+        ];
+        for (const p of paths) {
+            if (existsSync(p)) {
+                return readFileSync(p, 'utf-8').trim();
+            }
+        }
+        return null;
+    }
+
+    /** Ensure our SSH key is registered in OVH (idempotent) */
+    private async ensureSshKeyRegistered(): Promise<void> {
+        try {
+            const existing = await this.listSshKeys();
+            if (existing.includes(this.sshKeyName)) {
+                this.logger.log(`SSH key '${this.sshKeyName}' already registered in OVH`);
+                return;
+            }
+
+            const pubKey = this.getLocalPublicKey();
+            if (!pubKey) {
+                this.logger.warn('No local SSH public key found (~/.ssh/id_ed25519.pub). Auto-registration skipped.');
+                return;
+            }
+
+            await this.registerSshKey(this.sshKeyName, pubKey);
+            this.logger.log(`SSH key '${this.sshKeyName}' registered in OVH ✅`);
+        } catch (err: any) {
+            this.logger.warn(`SSH key auto-registration failed: ${err.message || err}`);
+        }
     }
 }
