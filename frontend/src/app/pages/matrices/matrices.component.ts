@@ -125,9 +125,22 @@ import { ApiService } from '../../services/api.service';
                             <span class="spin-icon" style="font-size: 18px;">⚙️</span>
                         } @else {
                             <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;"
-                                    (click)="updateOne(m)" title="Actualizar esta matriz">
+                                    (click)="updateOne(m)" title="Actualizar esta matriz"
+                                    [disabled]="m.status !== 'ACTIVE' && m.status !== 'ERROR'">
                                 🔄
                             </button>
+                            @if (m.status === 'ACTIVE') {
+                                <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;"
+                                        (click)="suspendOne(m)" title="Suspender esta matriz">
+                                    ⏸️
+                                </button>
+                            }
+                            @if (m.status === 'SUSPENDED') {
+                                <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;"
+                                        (click)="reactivateOne(m)" title="Reactivar esta matriz">
+                                    ▶️
+                                </button>
+                            }
                             <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;"
                                     (click)="openMigrateModal(m)" title="Migrar a otro VPS">
                                 🚚
@@ -337,6 +350,51 @@ export class MatricesComponent implements OnInit {
                 m._updateStep = null;
                 m._updateResult = 'error';
                 m._updateMessage = err.error?.message || 'Error al eliminar';
+            },
+        });
+    }
+
+    suspendOne(m: any) {
+        if (!confirm(`¿Suspender la matriz "${m.client?.name || m.slug}"?`)) return;
+        m._updating = true;
+        m._updateStep = 'Suspendiendo contenedores...';
+        this.api.suspendMatrix(m.id).subscribe({
+            next: () => {
+                m._updating = false;
+                m._updateStep = null;
+                m._updateResult = 'success';
+                m._updateMessage = 'Matriz suspendida';
+                m.status = 'SUSPENDED';
+                setTimeout(() => { m._updateResult = null; }, 8000);
+            },
+            error: (err: any) => {
+                m._updating = false;
+                m._updateStep = null;
+                m._updateResult = 'error';
+                m._updateMessage = err.error?.message || 'Error al suspender';
+                setTimeout(() => { m._updateResult = null; }, 10000);
+            },
+        });
+    }
+
+    reactivateOne(m: any) {
+        m._updating = true;
+        m._updateStep = 'Reactivando contenedores...';
+        this.api.reactivateMatrix(m.id).subscribe({
+            next: () => {
+                m._updating = false;
+                m._updateStep = null;
+                m._updateResult = 'success';
+                m._updateMessage = 'Matriz reactivada';
+                m.status = 'ACTIVE';
+                setTimeout(() => { m._updateResult = null; }, 8000);
+            },
+            error: (err: any) => {
+                m._updating = false;
+                m._updateStep = null;
+                m._updateResult = 'error';
+                m._updateMessage = err.error?.message || 'Error al reactivar';
+                setTimeout(() => { m._updateResult = null; }, 10000);
             },
         });
     }

@@ -7,6 +7,7 @@ import { TemplateGeneratorService } from './template-generator.service';
 import { CloudflareService } from './cloudflare.service';
 import { SupabaseAdminService } from './supabase-admin.service';
 import { PluginCatalogService } from '../plugin-catalog/plugin-catalog.service';
+import { PackagesService } from '../packages/packages.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('ProvisioningService', () => {
@@ -18,6 +19,7 @@ describe('ProvisioningService', () => {
     let cloudflare: any;
     let supabaseAdmin: any;
     let pluginCatalog: any;
+    let packagesService: any;
 
     beforeEach(async () => {
         prisma = {
@@ -38,9 +40,9 @@ describe('ProvisioningService', () => {
         };
 
         ssh = {
-            exec: jest.fn().mockResolvedValue({ success: true, stdout: 'ok', stderr: '' }),
+            exec: jest.fn().mockResolvedValue({ success: true, stdout: 'OK', stderr: '' }),
             uploadContent: jest.fn().mockResolvedValue(undefined),
-            execMultiple: jest.fn().mockResolvedValue([{ success: true, stdout: 'ok', stderr: '' }]),
+            execMultiple: jest.fn().mockResolvedValue([{ success: true, stdout: 'OK', stderr: '' }]),
         };
 
         vpsNodes = {
@@ -76,6 +78,10 @@ describe('ProvisioningService', () => {
             ]),
         };
 
+        packagesService = {
+            installCorePackages: jest.fn().mockResolvedValue([]),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ProvisioningService,
@@ -86,6 +92,7 @@ describe('ProvisioningService', () => {
                 { provide: CloudflareService, useValue: cloudflare },
                 { provide: SupabaseAdminService, useValue: supabaseAdmin },
                 { provide: PluginCatalogService, useValue: pluginCatalog },
+                { provide: PackagesService, useValue: packagesService },
                 { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('test-value') } },
             ],
         }).compile();
@@ -109,27 +116,43 @@ describe('ProvisioningService', () => {
             expect(result.status).toBe('ACTIVE');
             expect(prisma.matrixInstance.create).toHaveBeenCalled();
             expect(ssh.exec).toHaveBeenCalled();
-            expect(cloudflare.createARecord).toHaveBeenCalled();
+            // DNS is now handled by deploy-nexo-core.sh, not by the TS pipeline
             expect(supabaseAdmin.createUser).toHaveBeenCalled();
         }, 15000);
 
-        it('should handle step failure gracefully', async () => {
-            // PREPARE_VPS makes ~7 SSH calls (update, which*4, compose version, nginx check)
-            // Then SELECT_VPS makes 0 SSH calls
-            // Then CLONE_REPO: rm -rf + git clone (this is where we fail)
-            let callCount = 0;
-            ssh.exec.mockImplementation(() => {
-                callCount++;
-                // Fail on the 9th+ call (git clone step)
-                if (callCount >= 9) {
-                    return Promise.resolve({ success: false, stdout: '', stderr: 'git clone failed' });
-                }
-                return Promise.resolve({ success: true, stdout: 'ok', stderr: '' });
-            });
+        it('should call deploy-nexo-core.sh via SSH', async () => {
+            await service.provisionMatrix({ clientId: 'c1', slug: 'test' });
+            expect(ssh.exec).toHaveBeenCalledWith(
+                expect.any(Object),
+                expect.stringContaining('deploy-nexo-core.sh'),
+            );
+        }, 15000);
+
+        it('should verify deploy script exists before execution', async () => {
+            await service.provisionMatrix({ clientId: 'c1', slug: 'test' });
+            expect(ssh.exec).toHaveBeenCalledWith(
+                expect.any(Object),
+                expect.stringContaining('test -f ~/scripts/deploy-nexo-core.sh'),
+            );
+        }, 15000);
+
+        it('should handle deploy script failure gracefully', async () => {
+            // First call: script check (OK), second call: script execution (FAIL)
+            ssh.exec
+                .mockResolvedValueOnce({ success: true, stdout: 'OK', stderr: '' })
+                .mockResolvedValueOnce({ success: false, stdout: '', stderr: 'deploy-nexo-core.sh failed: connection refused' });
 
             const result = await service.provisionMatrix({ clientId: 'c1', slug: 'test' });
             expect(result.status).toBe('ERROR');
             expect(result.failedStep).toBeDefined();
+        });
+
+        it('should fail if deploy script is not on the VPS', async () => {
+            ssh.exec.mockResolvedValueOnce({ success: true, stdout: '', stderr: '' }); // script check fails (no 'OK')
+
+            const result = await service.provisionMatrix({ clientId: 'c1', slug: 'test' });
+            expect(result.status).toBe('ERROR');
+            expect(result.error).toContain('not found on VPS');
         });
     });
 

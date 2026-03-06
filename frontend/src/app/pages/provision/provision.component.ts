@@ -377,18 +377,12 @@ export class ProvisionComponent implements OnInit, OnDestroy {
 
     provisionSteps: Array<{ name: string; label: string; status: string; message: string }> = [];
     readonly stepLabels: Record<string, string> = {
-        'PREPARE_VPS': '1. Preparar VPS',
-        'SELECT_VPS': '2. Seleccionar VPS',
-        'CLONE_REPO': '3. Clonar repositorio',
-        'GENERATE_ENV': '4. Generar .env',
-        'GENERATE_COMPOSE': '5. Generar docker-compose',
-        'DOCKER_UP': '6. Iniciar Docker',
-        'CREATE_DNS': '7. Crear DNS',
-        'CONFIGURE_NGINX': '8. Configurar Nginx',
-        'CONFIGURE_SSL': '9. Configurar SSL',
-        'HEALTH_CHECK': '10. Health check',
-        'CREATE_ADMIN': '11. Crear admin',
-        'SYNC_PLUGINS': '12. Sincronizar plugins',
+        'PREPARE_VPS': '1. Deploy (clone, Docker, DNS, Nginx, SSL)',
+        'HEALTH_CHECK': '2. Health check',
+        'CREATE_ADMIN': '3. Crear admin (Supabase)',
+        'SYNC_PLUGINS': '4. Sincronizar plugins',
+        'SYNC_PACKAGES': '5. Instalar extensiones',
+        'DONE': '✅ Completado',
     };
 
     get totalSteps() { return Object.keys(this.stepLabels).length; }

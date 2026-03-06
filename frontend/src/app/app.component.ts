@@ -16,8 +16,8 @@ import { AuthService } from './auth/auth.service';
     <div class="shell">
         <aside class="sidebar">
             <div class="sidebar-brand">
-                <h2>⬡ Matriz Panel</h2>
-                <small>Control de Instancias</small>
+                <h2>⬡ Nexo Hub</h2>
+                <small>Control Panel</small>
             </div>
             <nav>
                 <a routerLink="/dashboard" routerLinkActive="active">

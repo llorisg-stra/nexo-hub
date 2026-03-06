@@ -75,7 +75,7 @@ export class ProvisioningService {
         const dbPassword = this.templates.generatePassword();
         const n8nPassword = this.templates.generatePassword();
         const repoUrl = this.config.get<string>('MATRIZ_REPO_URL', 'https://github.com/llorisg-stra/nexo-core.git');
-        const baseDir = `/home/${vps.sshUser}/matrices/${slug}`;
+        const baseDir = `/home/${vps.sshUser}/instances/${slug}`;
 
         // Create the matrix record
         const matrix = await this.prisma.matrixInstance.create({
@@ -133,8 +133,13 @@ export class ProvisioningService {
     }
 
     /**
-     * Phase 2: Execute the 12-step provisioning pipeline.
-     * Slow (SSH commands). Runs in background for one-click.
+     * Phase 2: Execute the provisioning pipeline.
+     *
+     * ARCHITECTURE: Bash scripts are the source of truth for infrastructure.
+     * - PREPARE_VPS: deploy-nexo-core.sh (clone, .env, Docker, DNS, Nginx, SSL)
+     * - HEALTH_CHECK / CREATE_ADMIN / SYNC_PLUGINS / SYNC_PACKAGES: panel-specific
+     *
+     * VPS selection already happened in initProvision().
      */
     async executeProvision(ctx: {
         matrix: any;
@@ -158,71 +163,10 @@ export class ProvisioningService {
             fn: () => Promise<string>;
         }> = [
                 {
+                    // deploy-nexo-core.sh handles: clone, .env, docker build,
+                    // DNS (Cloudflare), Nginx, SSL (certbot), port assignment
                     step: ProvisioningStep.PREPARE_VPS,
-                    fn: () => this.stepPrepareVps(sshConfig),
-                },
-                {
-                    step: ProvisioningStep.SELECT_VPS,
-                    fn: async () => `Selected VPS ${vps.host} (slot ${vps.nextSlotIndex})`,
-                },
-                {
-                    step: ProvisioningStep.CLONE_REPO,
-                    fn: () => this.stepCloneRepo(sshConfig, repoUrl, baseDir),
-                },
-                {
-                    step: ProvisioningStep.GENERATE_ENV,
-                    fn: () =>
-                        this.stepGenerateEnv(sshConfig, baseDir, {
-                            slug,
-                            dbName: matrix.dbName,
-                            dbUser: matrix.dbUser,
-                            dbPassword,
-                            n8nUser: matrix.n8nUser,
-                            n8nPassword,
-                            supabaseUrl: this.config.get('SUPABASE_URL', ''),
-                            supabaseServiceRoleKey: this.config.get(
-                                'SUPABASE_SERVICE_ROLE_KEY',
-                                '',
-                            ),
-                            corsOrigin: `https://${subdomain}`,
-                            ports,
-                        }),
-                },
-                {
-                    step: ProvisioningStep.GENERATE_COMPOSE,
-                    fn: () =>
-                        this.stepGenerateCompose(sshConfig, baseDir, {
-                            slug,
-                            dbName: matrix.dbName,
-                            dbUser: matrix.dbUser,
-                            dbPassword,
-                            n8nUser: matrix.n8nUser,
-                            n8nPassword,
-                            supabaseUrl: '',
-                            supabaseServiceRoleKey: '',
-                            corsOrigin: `https://${subdomain}`,
-                            ports,
-                        }),
-                },
-                {
-                    step: ProvisioningStep.DOCKER_UP,
-                    fn: () => this.stepDockerUp(sshConfig, baseDir),
-                },
-                {
-                    step: ProvisioningStep.CREATE_DNS,
-                    fn: () => this.stepCreateDns(subdomain, vps.host),
-                },
-                {
-                    step: ProvisioningStep.CONFIGURE_NGINX,
-                    fn: () =>
-                        this.stepConfigureNginx(sshConfig, subdomain, {
-                            backend: ports.backend,
-                            frontend: ports.frontend,
-                        }),
-                },
-                {
-                    step: ProvisioningStep.CONFIGURE_SSL,
-                    fn: () => this.stepConfigureSsl(sshConfig, subdomain),
+                    fn: () => this.stepRunDeployScript(sshConfig, slug, subdomain),
                 },
                 {
                     step: ProvisioningStep.HEALTH_CHECK,
@@ -339,145 +283,37 @@ export class ProvisioningService {
         return this.executeProvision(ctx);
     }
 
-    // ---- Individual pipeline steps ----
+    // ---- Pipeline steps ----
+    // DECISION: Bash scripts are the source of truth for provisioning.
+    // The ProvisioningService calls them via SSH, NOT reimplements their logic.
 
-    private async stepCloneRepo(
+    /**
+     * Run deploy-nexo-core.sh on the target VPS.
+     * This single script handles: clone, .env generation, docker build,
+     * DNS (Cloudflare), Nginx, SSL (with DNS verification loop),
+     * dynamic ports, and CLIENT_NAME parametrization.
+     */
+    private async stepRunDeployScript(
         ssh: SshConnectionConfig,
-        repoUrl: string,
-        baseDir: string,
-    ): Promise<string> {
-        const githubPat = this.config.get<string>('GITHUB_PAT', '');
-        const cloneUrl = githubPat
-            ? repoUrl.replace('https://github.com', `https://x-access-token:${githubPat}@github.com`)
-            : repoUrl;
-
-        // Clean up any existing directory from a failed previous attempt
-        await this.ssh.exec(ssh, `rm -rf ${baseDir}`);
-
-        const result = await this.ssh.exec(
-            ssh,
-            `mkdir -p $(dirname ${baseDir}) && git clone ${cloneUrl} ${baseDir}`,
-        );
-        if (!result.success) throw new Error(`git clone failed: ${result.stderr}`);
-        return `Cloned to ${baseDir}`;
-    }
-
-    private async stepGenerateEnv(
-        ssh: SshConnectionConfig,
-        baseDir: string,
-        envConfig: MatrixEnvConfig,
-    ): Promise<string> {
-        const envContent = this.templates.generateEnvFile(envConfig);
-        await this.ssh.uploadContent(ssh, envContent, `${baseDir}/.env`);
-        return `.env generated with unique credentials`;
-    }
-
-    private async stepGenerateCompose(
-        ssh: SshConnectionConfig,
-        baseDir: string,
-        envConfig: MatrixEnvConfig,
-    ): Promise<string> {
-        const composeContent = this.templates.generateDockerCompose(envConfig);
-        await this.ssh.uploadContent(
-            ssh,
-            composeContent,
-            `${baseDir}/docker-compose.yml`,
-        );
-        return `docker-compose.yml generated (ports: ${envConfig.ports.backend}-${envConfig.ports.adminer})`;
-    }
-
-    private async stepDockerUp(
-        ssh: SshConnectionConfig,
-        baseDir: string,
-    ): Promise<string> {
-        const result = await this.ssh.exec(
-            ssh,
-            'docker compose up -d --build',
-            baseDir,
-        );
-        if (!result.success) {
-            throw new Error(`docker compose up failed: ${result.stderr}`);
-        }
-
-        // Wait for DB to be healthy
-        await this.sleep(5000);
-
-        // Create pgvector extension
-        const slug = baseDir.split('/').pop();
-        await this.ssh.exec(
-            ssh,
-            `docker exec matriz-${slug}-db psql -U \${POSTGRES_USER} -d \${POSTGRES_DB} -c "CREATE EXTENSION IF NOT EXISTS vector;"`,
-            baseDir,
-        );
-
-        // Run Prisma migrate deploy to create all tables
-        const migrateResult = await this.ssh.exec(
-            ssh,
-            'docker compose run --rm backend npx prisma migrate deploy',
-            baseDir,
-        );
-        if (!migrateResult.success) {
-            this.logger.warn(`Prisma migrate warning: ${migrateResult.stderr}`);
-        }
-
-        return 'Containers started, pgvector enabled, schema pushed';
-    }
-
-    private async stepCreateDns(subdomain: string, vpsIp: string): Promise<string> {
-        if (!this.cloudflare.isConfigured) {
-            return `DNS: Manual setup required for ${subdomain} (Cloudflare not configured)`;
-        }
-
-        try {
-            const record = await this.cloudflare.createARecord(subdomain, vpsIp);
-            return `DNS A record created: ${subdomain} → ${vpsIp} (id: ${record.id})`;
-        } catch (error: any) {
-            const msg = error?.message || String(error);
-            if (msg.includes('already exists') || msg.includes('already exist')) {
-                return `DNS A record already exists for ${subdomain} → ${vpsIp} (reusing)`;
-            }
-            throw error;
-        }
-    }
-
-    private async stepConfigureSsl(
-        ssh: SshConnectionConfig,
+        slug: string,
         subdomain: string,
     ): Promise<string> {
+        // Ensure the deploy script is on the VPS
+        const scriptCheck = await this.ssh.exec(ssh, 'test -f ~/scripts/deploy-nexo-core.sh && echo OK');
+        if (!scriptCheck.stdout.includes('OK')) {
+            throw new Error('deploy-nexo-core.sh not found on VPS. Run: scp scripts/deploy-nexo-core.sh <vps>:~/scripts/');
+        }
+
         const result = await this.ssh.exec(
             ssh,
-            `sudo certbot --nginx -d ${subdomain} --non-interactive --agree-tos --email admin@strategialaboratory.com`,
+            `bash ~/scripts/deploy-nexo-core.sh ${slug} ${subdomain}`,
         );
+
         if (!result.success) {
-            // SSL can fail if DNS hasn't propagated yet — non-fatal
-            return `SSL: Certbot returned non-zero, may need retry. ${result.stderr}`;
+            throw new Error(`deploy-nexo-core.sh failed: ${result.stderr}`);
         }
-        return `SSL configured for ${subdomain}`;
-    }
 
-    private async stepConfigureNginx(
-        ssh: SshConnectionConfig,
-        subdomain: string,
-        ports: { backend: number; frontend: number },
-    ): Promise<string> {
-        const nginxConfig = this.templates.generateNginxConfig(subdomain, ports);
-        const configPath = `/etc/nginx/sites-available/${subdomain}`;
-        const enabledPath = `/etc/nginx/sites-enabled/${subdomain}`;
-
-        // Ensure directories exist
-        await this.ssh.exec(ssh, 'sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled');
-
-        // Write config using sudo tee (uploadContent uses echo without sudo)
-        const escapedConfig = nginxConfig.replace(/'/g, "'\\''");
-        await this.ssh.exec(ssh, `echo '${escapedConfig}' | sudo tee ${configPath} > /dev/null`);
-
-        await this.ssh.exec(ssh, `sudo ln -sf ${configPath} ${enabledPath}`);
-        const testResult = await this.ssh.exec(ssh, 'sudo nginx -t');
-        if (!testResult.success) {
-            throw new Error(`Nginx config invalid: ${testResult.stderr}`);
-        }
-        await this.ssh.exec(ssh, 'sudo systemctl reload nginx');
-        return `Nginx configured and reloaded for ${subdomain}`;
+        return `Deploy script completed for ${slug} (${subdomain})`;
     }
 
     private async stepHealthCheck(
@@ -541,6 +377,50 @@ export class ProvisioningService {
         });
 
         return `Admin created: ${client.email} (Supabase ID: ${user.id})`;
+    }
+
+    /**
+     * Configure Nginx reverse proxy for a subdomain.
+     * NOTE: Only used by migrateMatrix(). New provisioning uses deploy-nexo-core.sh.
+     */
+    private async stepConfigureNginx(
+        ssh: SshConnectionConfig,
+        subdomain: string,
+        ports: { backend: number; frontend: number },
+    ): Promise<string> {
+        const nginxConfig = this.templates.generateNginxConfig(subdomain, ports);
+        const configPath = `/etc/nginx/sites-available/${subdomain}`;
+        const enabledPath = `/etc/nginx/sites-enabled/${subdomain}`;
+
+        await this.ssh.exec(ssh, 'sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled');
+        const escapedConfig = nginxConfig.replace(/'/g, "'\\''");
+        await this.ssh.exec(ssh, `echo '${escapedConfig}' | sudo tee ${configPath} > /dev/null`);
+        await this.ssh.exec(ssh, `sudo ln -sf ${configPath} ${enabledPath}`);
+
+        const testResult = await this.ssh.exec(ssh, 'sudo nginx -t');
+        if (!testResult.success) {
+            throw new Error(`Nginx config invalid: ${testResult.stderr}`);
+        }
+        await this.ssh.exec(ssh, 'sudo systemctl reload nginx');
+        return `Nginx configured for ${subdomain}`;
+    }
+
+    /**
+     * Configure SSL via Certbot.
+     * NOTE: Only used by migrateMatrix(). New provisioning uses deploy-nexo-core.sh.
+     */
+    private async stepConfigureSsl(
+        ssh: SshConnectionConfig,
+        subdomain: string,
+    ): Promise<string> {
+        const result = await this.ssh.exec(
+            ssh,
+            `sudo certbot --nginx -d ${subdomain} --non-interactive --agree-tos --email admin@strategialaboratory.com`,
+        );
+        if (!result.success) {
+            return `SSL: Certbot returned non-zero, may need retry. ${result.stderr}`;
+        }
+        return `SSL configured for ${subdomain}`;
     }
 
     /**
@@ -664,37 +544,22 @@ export class ProvisioningService {
         const commands: string[] = [];
 
         if (githubPat) {
-            // Temporarily set the authenticated remote URL for pull
             const authedUrl = repoUrl.replace('https://github.com', `https://x-access-token:${githubPat}@github.com`);
             commands.push(`git remote set-url origin ${authedUrl}`);
         }
 
+        // docker-compose.yml now uses ${CLIENT_NAME} from .env — no sed needed.
+        // Just preserve .env across git reset.
         commands.push(
-            // Preserve the matrix-specific docker-compose.yml across git reset
-            'cp docker-compose.yml docker-compose.yml.matrix-backup',
+            'cp .env .env.backup',
             'git fetch origin main',
             'git reset --hard origin/main',
-            // Restore the matrix's own compose (with correct ports, names, network)
-            'mv docker-compose.yml.matrix-backup docker-compose.yml',
+            'mv .env.backup .env',
         );
 
         if (githubPat) {
-            // Restore clean remote URL (don't leave PAT in git config)
             commands.push(`git remote set-url origin ${repoUrl}`);
         }
-
-        // Safety net: if the compose still has generic names (e.g. badly provisioned),
-        // rewrite them with the slug. The sed is a no-op if names already include slug.
-        const slug = matrix.slug;
-        commands.push(
-            `sed -i 's/container_name: matriz-db$/container_name: matriz-${slug}-db/g' docker-compose.yml`,
-            `sed -i 's/container_name: matriz-redis$/container_name: matriz-${slug}-redis/g' docker-compose.yml`,
-            `sed -i 's/container_name: matriz-adminer$/container_name: matriz-${slug}-adminer/g' docker-compose.yml`,
-            `sed -i 's/container_name: matriz-n8n$/container_name: matriz-${slug}-n8n/g' docker-compose.yml`,
-            `sed -i 's/container_name: matriz-backend$/container_name: matriz-${slug}-backend/g' docker-compose.yml`,
-            `sed -i 's/container_name: matriz-frontend$/container_name: matriz-${slug}-frontend/g' docker-compose.yml`,
-            `sed -i 's/name: matriz-network$/name: matriz-${slug}-network/g' docker-compose.yml`,
-        );
 
         commands.push(
             'docker compose build --no-cache',
@@ -1108,56 +973,22 @@ export class ProvisioningService {
     }
 
     /**
-     * Prepare a fresh VPS: install Docker, Nginx, certbot, git.
-     * Idempotent — skips packages that are already installed.
+     * Prepare a fresh VPS via setup-vps.sh.
+     * Installs Docker, Node.js, Nginx, Certbot, WireGuard, etc.
+     * Source of truth: scripts/setup-vps.sh
      */
-    private async stepPrepareVps(ssh: SshConnectionConfig): Promise<string> {
-        const installed: string[] = [];
-
-        // 1. System update
-        await this.ssh.exec(ssh, 'sudo apt-get update -y');
-
-        // 2. Git
-        const gitCheck = await this.ssh.exec(ssh, 'which git');
-        if (!gitCheck.success) {
-            await this.ssh.exec(ssh, 'sudo apt-get install -y git');
-            installed.push('git');
+    private async stepPrepareVps(ssh: SshConnectionConfig, vpnIp?: string): Promise<string> {
+        const scriptCheck = await this.ssh.exec(ssh, 'test -f ~/scripts/setup-vps.sh && echo OK');
+        if (!scriptCheck.stdout.includes('OK')) {
+            throw new Error('setup-vps.sh not found on VPS. Run: scp scripts/setup-vps.sh <vps>:~/scripts/');
         }
 
-        // 3. Docker
-        const dockerCheck = await this.ssh.exec(ssh, 'which docker');
-        if (!dockerCheck.success) {
-            await this.ssh.exec(ssh, 'curl -fsSL https://get.docker.com | sudo sh');
-            await this.ssh.exec(ssh, 'sudo usermod -aG docker ubuntu');
-            installed.push('docker');
+        const vpnArg = vpnIp ? ` ${vpnIp}` : '';
+        const result = await this.ssh.exec(ssh, `bash ~/scripts/setup-vps.sh${vpnArg}`);
+        if (!result.success) {
+            throw new Error(`setup-vps.sh failed: ${result.stderr}`);
         }
 
-        // 4. Docker Compose plugin
-        const composeCheck = await this.ssh.exec(ssh, 'docker compose version');
-        if (!composeCheck.success) {
-            await this.ssh.exec(ssh, 'sudo apt-get install -y docker-compose-plugin');
-            installed.push('docker-compose-plugin');
-        }
-
-        // 5. Nginx
-        const nginxCheck = await this.ssh.exec(ssh, 'which nginx');
-        if (!nginxCheck.success) {
-            await this.ssh.exec(ssh, 'sudo apt-get install -y nginx');
-            await this.ssh.exec(ssh, 'sudo systemctl enable nginx');
-            await this.ssh.exec(ssh, 'sudo systemctl start nginx');
-            installed.push('nginx');
-        }
-
-        // 6. Certbot
-        const certbotCheck = await this.ssh.exec(ssh, 'which certbot');
-        if (!certbotCheck.success) {
-            await this.ssh.exec(ssh, 'sudo apt-get install -y certbot python3-certbot-nginx');
-            installed.push('certbot');
-        }
-
-        if (installed.length === 0) {
-            return 'VPS already prepared (all tools installed)';
-        }
-        return `Installed: ${installed.join(', ')}`;
+        return `VPS prepared via setup-vps.sh`;
     }
 }

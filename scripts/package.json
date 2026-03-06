@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@ovh-api/api": "^4.2.0"
+  }
+}
