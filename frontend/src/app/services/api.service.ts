@@ -45,6 +45,14 @@ export class ApiService {
         return this.http.delete(`${this.base}/vps-nodes/${id}`);
     }
 
+    // ---- OVH API ----
+    getOvhVps(): Observable<any[]> {
+        return this.http.get<any[]>(`${this.base}/ovh/vps`);
+    }
+    getOvhVpsStatus(name: string): Observable<any> {
+        return this.http.get(`${this.base}/ovh/vps/${name}/status`);
+    }
+
     // ---- Matrices / Provisioning ----
     getMatrices(): Observable<any[]> {
         return this.http.get<any[]>(`${this.base}/matrices`);

@@ -75,6 +75,63 @@ import { ApiService } from '../../services/api.service';
         </div>
     }
 
+    <!-- OVH Discovery -->
+    <div class="card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+                <h3 style="margin: 0;">☁️ Servidores OVH</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">VPS detectados en tu cuenta OVH</p>
+            </div>
+            <button class="btn btn-sm btn-secondary" (click)="loadOvhVps()" [disabled]="ovhLoading">
+                {{ ovhLoading ? '⏳ Cargando...' : '🔄 Refrescar' }}
+            </button>
+        </div>
+
+        @if (ovhLoading) {
+            <div class="loading" style="padding: 20px;"><div class="spinner"></div>Consultando API OVH...</div>
+        } @else if (ovhError) {
+            <div style="padding: 16px; background: rgba(255,107,107,0.1); border-radius: 8px; font-size: 13px; color: var(--danger);">
+                ⚠️ {{ ovhError }}
+            </div>
+        } @else if (ovhNodes.length > 0) {
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;">
+                @for (ovh of ovhNodes; track ovh.name) {
+                    <div style="padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-secondary);">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px;">{{ ovh.displayName || ovh.name }}</div>
+                                <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">
+                                    {{ ovh.ips?.[0] || '—' }}
+                                </div>
+                            </div>
+                            <span class="badge" [class]="ovh.state === 'running' ? 'active' : 'suspended'"
+                                  style="font-size: 10px;">
+                                {{ ovh.state }}
+                            </span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); display: flex; gap: 12px; margin-bottom: 10px;">
+                            <span>🧠 {{ ovh.model?.memory || 0 }} MB</span>
+                            <span>🖥️ {{ ovh.model?.vcore || 0 }} vCPU</span>
+                            <span>💾 {{ ovh.model?.disk || 0 }} GB</span>
+                            <span>🌍 {{ ovh.zone || '—' }}</span>
+                        </div>
+                        @if (isOvhRegistered(ovh)) {
+                            <span style="font-size: 12px; color: var(--success);">✅ Ya registrado</span>
+                        } @else {
+                            <button class="btn btn-sm btn-primary" (click)="importOvhNode(ovh)">
+                                📥 Importar como Nodo
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        } @else {
+            <div style="text-align: center; padding: 16px; color: var(--text-muted); font-size: 13px;">
+                Pulsa "🔄 Refrescar" para cargar los VPS de tu cuenta OVH
+            </div>
+        }
+    </div>
+
     <div class="stats-grid">
         @for (node of nodes; track node.id) {
             <div class="card" style="cursor: pointer;">
@@ -189,12 +246,49 @@ export class VpsComponent implements OnInit {
     editingNodeId: string | null = null;
     form = { name: '', host: '', sshUser: 'ubuntu', sshPassword: '', provider: 'OVH', maxMatrices: 5, notes: '' };
 
+    // OVH Discovery
+    ovhNodes: any[] = [];
+    ovhLoading = false;
+    ovhError = '';
+
     constructor(private api: ApiService) { }
 
-    ngOnInit() { this.load(); }
+    ngOnInit() {
+        this.load();
+        this.loadOvhVps();
+    }
 
     load() {
         this.api.getVpsNodes().subscribe(d => this.nodes = d);
+    }
+
+    loadOvhVps() {
+        this.ovhLoading = true;
+        this.ovhError = '';
+        this.api.getOvhVps().subscribe({
+            next: (data: any[]) => {
+                this.ovhNodes = data;
+                this.ovhLoading = false;
+            },
+            error: (err: any) => {
+                this.ovhError = err.error?.message || 'Error al consultar OVH API';
+                this.ovhLoading = false;
+            },
+        });
+    }
+
+    isOvhRegistered(ovh: any): boolean {
+        const ip = ovh.ips?.[0];
+        return this.nodes.some(n => n.host === ip || n.name === ovh.displayName);
+    }
+
+    importOvhNode(ovh: any) {
+        this.resetForm();
+        this.form.name = ovh.displayName || ovh.name;
+        this.form.host = ovh.ips?.[0] || '';
+        this.form.provider = 'OVH';
+        this.form.notes = `OVH: ${ovh.model?.name || ''} · ${ovh.model?.vcore || 0} vCPU · ${ovh.model?.memory || 0} MB · ${ovh.zone || ''}`;
+        this.showForm = true;
     }
 
     resetForm() {
