@@ -101,7 +101,7 @@ import { ApiService } from '../../services/api.service';
                             <div>
                                 <div style="font-weight: 600; font-size: 14px;">{{ ovh.displayName || ovh.name }}</div>
                                 <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">
-                                    {{ ovh.ips?.[0] || '—' }}
+                                    {{ getIpv4(ovh.ips) || '—' }}
                                 </div>
                             </div>
                             <span class="badge" [class]="ovh.state === 'running' ? 'active' : 'suspended'"
@@ -278,17 +278,23 @@ export class VpsComponent implements OnInit {
     }
 
     isOvhRegistered(ovh: any): boolean {
-        const ip = ovh.ips?.[0];
-        return this.nodes.some(n => n.host === ip || n.name === ovh.displayName);
+        const ip = this.getIpv4(ovh.ips);
+        return this.nodes.some(n => n.host === ip || n.ip === ip || n.name === ovh.displayName);
     }
 
     importOvhNode(ovh: any) {
         this.resetForm();
         this.form.name = ovh.displayName || ovh.name;
-        this.form.host = ovh.ips?.[0] || '';
+        this.form.host = this.getIpv4(ovh.ips) || '';
         this.form.provider = 'OVH';
         this.form.notes = `OVH: ${ovh.model?.name || ''} · ${ovh.model?.vcore || 0} vCPU · ${ovh.model?.memory || 0} MB · ${ovh.zone || ''}`;
         this.showForm = true;
+    }
+
+    /** Prefer IPv4 from mixed IP list */
+    getIpv4(ips: string[]): string {
+        if (!ips || ips.length === 0) return '';
+        return ips.find(ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) || ips[0];
     }
 
     resetForm() {
