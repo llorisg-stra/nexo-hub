@@ -117,10 +117,22 @@ import { ApiService } from '../../services/api.service';
                         </div>
                         @if (isOvhRegistered(ovh)) {
                             <span style="font-size: 12px; color: var(--success);">✅ Ya registrado</span>
+                        } @else if (isOvhIgnored(ovh)) {
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--danger);">🚩 Ignorado</span>
+                                <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 2px 8px;" (click)="toggleIgnoreOvh(ovh)">
+                                    Restaurar
+                                </button>
+                            </div>
                         } @else {
-                            <button class="btn btn-sm btn-primary" (click)="importOvhNode(ovh)">
-                                📥 Importar como Nodo
-                            </button>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-sm btn-primary" (click)="importOvhNode(ovh)">
+                                    📥 Importar
+                                </button>
+                                <button class="btn btn-sm btn-secondary" style="opacity: 0.7;" (click)="toggleIgnoreOvh(ovh)">
+                                    🚩 Ignorar
+                                </button>
+                            </div>
                         }
                     </div>
                 }
@@ -249,9 +261,16 @@ export class VpsComponent implements OnInit {
     // OVH Discovery
     ovhNodes: any[] = [];
     ovhLoading = false;
+    ignoredOvhNames: Set<string> = new Set();
     ovhError = '';
 
-    constructor(private api: ApiService) { }
+    constructor(private api: ApiService) {
+        // Load ignored OVH VPS from localStorage
+        try {
+            const saved = localStorage.getItem('ovh_ignored_vps');
+            if (saved) this.ignoredOvhNames = new Set(JSON.parse(saved));
+        } catch { }
+    }
 
     ngOnInit() {
         this.load();
@@ -289,6 +308,19 @@ export class VpsComponent implements OnInit {
         this.form.provider = 'OVH';
         this.form.notes = `OVH: ${ovh.model?.name || ''} · ${ovh.model?.vcore || 0} vCPU · ${ovh.model?.memory || 0} MB · ${ovh.zone || ''}`;
         this.showForm = true;
+    }
+
+    isOvhIgnored(ovh: any): boolean {
+        return this.ignoredOvhNames.has(ovh.name);
+    }
+
+    toggleIgnoreOvh(ovh: any) {
+        if (this.ignoredOvhNames.has(ovh.name)) {
+            this.ignoredOvhNames.delete(ovh.name);
+        } else {
+            this.ignoredOvhNames.add(ovh.name);
+        }
+        localStorage.setItem('ovh_ignored_vps', JSON.stringify([...this.ignoredOvhNames]));
     }
 
     /** Prefer IPv4 from mixed IP list */
