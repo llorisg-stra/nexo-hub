@@ -1,9 +1,13 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query } from '@nestjs/common';
 import { OvhService } from './ovh.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('api/ovh')
 export class OvhController {
-    constructor(private readonly ovh: OvhService) { }
+    constructor(
+        private readonly ovh: OvhService,
+        private readonly prisma: PrismaService,
+    ) { }
 
     // ── VPS ─────────────────────────────────────────────────
 
@@ -90,5 +94,32 @@ export class OvhController {
     @Get('ssh-keys/:name')
     getSshKey(@Param('name') name: string) {
         return this.ovh.getSshKey(name);
+    }
+
+    // ── Ignored (Red-Flagged) VPS ────────────────────────────
+
+    /** GET /api/ovh/ignored — List all ignored VPS names */
+    @Get('ignored')
+    async listIgnored() {
+        const rows = await this.prisma.ignoredOvhVps.findMany({ orderBy: { createdAt: 'desc' } });
+        return rows.map(r => r.vpsName);
+    }
+
+    /** POST /api/ovh/ignored/:vpsName — Mark a VPS as ignored */
+    @Post('ignored/:vpsName')
+    async addIgnored(@Param('vpsName') vpsName: string) {
+        await this.prisma.ignoredOvhVps.upsert({
+            where: { vpsName },
+            create: { vpsName },
+            update: {},
+        });
+        return { ok: true, vpsName };
+    }
+
+    /** DELETE /api/ovh/ignored/:vpsName — Un-ignore a VPS */
+    @Delete('ignored/:vpsName')
+    async removeIgnored(@Param('vpsName') vpsName: string) {
+        await this.prisma.ignoredOvhVps.deleteMany({ where: { vpsName } });
+        return { ok: true, vpsName };
     }
 }

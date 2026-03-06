@@ -52,6 +52,15 @@ export class ApiService {
     getOvhVpsStatus(name: string): Observable<any> {
         return this.http.get(`${this.base}/ovh/vps/${name}/status`);
     }
+    getOvhIgnored(): Observable<string[]> {
+        return this.http.get<string[]>(`${this.base}/ovh/ignored`);
+    }
+    addOvhIgnored(vpsName: string): Observable<any> {
+        return this.http.post(`${this.base}/ovh/ignored/${encodeURIComponent(vpsName)}`, {});
+    }
+    removeOvhIgnored(vpsName: string): Observable<any> {
+        return this.http.delete(`${this.base}/ovh/ignored/${encodeURIComponent(vpsName)}`);
+    }
 
     // ---- Matrices / Provisioning ----
     getMatrices(): Observable<any[]> {

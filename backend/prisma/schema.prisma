@@ -400,3 +400,14 @@ model PricingTier {
 
   @@map("pricing_tiers")
 }
+
+// ---- OVH VPS Ignore List ----
+
+model IgnoredOvhVps {
+  id        String   @id @default(uuid()) @db.Uuid
+  vpsName   String   @unique  // OVH service name (e.g. "vps-xxxx.vps.ovh.net")
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@map("ignored_ovh_vps")
+}

@@ -261,20 +261,15 @@ export class VpsComponent implements OnInit {
     // OVH Discovery
     ovhNodes: any[] = [];
     ovhLoading = false;
-    ignoredOvhNames: Set<string> = new Set();
+    ignoredOvhNames: string[] = [];
     ovhError = '';
 
-    constructor(private api: ApiService) {
-        // Load ignored OVH VPS from localStorage
-        try {
-            const saved = localStorage.getItem('ovh_ignored_vps');
-            if (saved) this.ignoredOvhNames = new Set(JSON.parse(saved));
-        } catch { }
-    }
+    constructor(private api: ApiService) { }
 
     ngOnInit() {
         this.load();
         this.loadOvhVps();
+        this.loadIgnoredOvh();
     }
 
     load() {
@@ -311,16 +306,26 @@ export class VpsComponent implements OnInit {
     }
 
     isOvhIgnored(ovh: any): boolean {
-        return this.ignoredOvhNames.has(ovh.name);
+        return this.ignoredOvhNames.includes(ovh.name);
+    }
+
+    loadIgnoredOvh() {
+        this.api.getOvhIgnored().subscribe({
+            next: (names: string[]) => this.ignoredOvhNames = names,
+            error: () => { },
+        });
     }
 
     toggleIgnoreOvh(ovh: any) {
-        if (this.ignoredOvhNames.has(ovh.name)) {
-            this.ignoredOvhNames.delete(ovh.name);
+        if (this.ignoredOvhNames.includes(ovh.name)) {
+            this.api.removeOvhIgnored(ovh.name).subscribe(() => {
+                this.ignoredOvhNames = this.ignoredOvhNames.filter(n => n !== ovh.name);
+            });
         } else {
-            this.ignoredOvhNames.add(ovh.name);
+            this.api.addOvhIgnored(ovh.name).subscribe(() => {
+                this.ignoredOvhNames = [...this.ignoredOvhNames, ovh.name];
+            });
         }
-        localStorage.setItem('ovh_ignored_vps', JSON.stringify([...this.ignoredOvhNames]));
     }
 
     /** Prefer IPv4 from mixed IP list */
