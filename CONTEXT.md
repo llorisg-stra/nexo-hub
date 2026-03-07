@@ -1,7 +1,7 @@
 # 📋 Contexto del Proyecto — Nexo Hub
 
-> **Última actualización**: 2026-03-06
-> **Estado**: ✅ Desplegado en VPS. Monorepo legacy eliminado.
+> **Última actualización**: 2026-03-07
+> **Estado**: ✅ Desplegado en VPS. 4 repos: nexo-hub, nexo-core, nexo-extensions, nexo-worker.
 
 ---
 
@@ -31,7 +31,7 @@ Panel de administración central para gestionar todas las matrices (instancias d
 | URL Panel | `https://panel.strategialaboratory.com` |
 | Backend | NestJS (PM2, puerto 3100) |
 | Frontend | Angular 19 (Nginx estático) |
-| BD | PostgreSQL (misma instancia que la Matriz principal) |
+| BD | PostgreSQL (standalone en VPS Hub) |
 
 ---
 
@@ -49,7 +49,7 @@ Panel de administración central para gestionar todas las matrices (instancias d
 | `workers/` | Heartbeat workers |
 | `ssh/` | SshService |
 | `audit/` | Logs de auditoría |
-| `ovh/` | Wrapper API OVH (VPS list, status, reinstall, reboot) |
+| `ovh/` | Wrapper API OVH (VPS list, status, reinstall, reboot, SSH keys, ignored VPS) |
 | `auth/` | ApiKeyGuard |
 | `prisma/` | PrismaService |
 
@@ -68,6 +68,19 @@ Páginas: `login`, `dashboard`, `clients`, `matrices`, `matrix-detail`, `vps`, `
 | Auth | `ApiKeyGuard` (via `X-API-Key` header) |
 | BD | Compartida con la Matriz principal por ahora |
 | Deploy | PM2 (backend) + Nginx estático (frontend) |
+
+### 2026-03-07 — OVH Discovery, SSH key automation, worker extraction
+
+- ✅ **OVH VPS Discovery**: sección en Nodos VPS que muestra VPS de la cuenta OVH
+- ✅ **Importar nodos OVH**: botón importar que pre-rellena formulario con IPv4 auto
+- ✅ **Red Flags persistentes**: ignorar VPS guardado en BD (tabla `ignored_ovh_vps`)
+- ✅ **SSH Key auto-registration**: registra `id_ed25519.pub` en OVH al arrancar (idempotente)
+- ✅ **Reinstall con SSH key**: provisioning sin passwords
+- ✅ **Login rebranding**: "Nexo Hub" + "Control Panel"
+- ✅ **CI/CD fix**: SSH key auth en GitHub Actions
+- ✅ **PostgreSQL restaurado**: BD caída tras limpieza Docker, reinstalada fresh
+- ✅ **nexo-worker repo**: extraído de Plantilla-Agente/servidor dedicado → GitHub
+- ✅ **Worker registrado**: worker-01 (147.135.215.195) visible en panel
 
 ### 2026-03-06 — Refactoring ProvisioningService + Angular screens
 
@@ -114,9 +127,11 @@ Páginas: `login`, `dashboard`, `clients`, `matrices`, `matrix-detail`, `vps`, `
 
 ## 🚀 Próximos Pasos
 
-1. ~~🔴 **Refactorizar `ProvisioningService`**~~ ✅ Hecho
-2. ~~🔴 **Pantallas Angular**~~ ✅ Hecho (VPS ya estaba, provision/matrices actualizados)
-3. 🔴 **Probar suspend/reactivate/update/delete** — E2E en VPS real
-4. 🔴 **Verificar `panel.strategialaboratory.com`** — Deploy actualización
-5. 🟡 **Billing/Stripe**: Cobros automáticos por plan
-6. 🟡 **Dashboard métricas reales**: Transicionar del Demo Mode
+1. 🔴 **Worker heartbeats** — worker-01 reporte estado al panel (Live Status)
+2. 🔴 **Test E2E provisioning** — crear una matriz real desde el panel
+3. 🔴 **Dashboard métricas reales** — transicionar del Demo Mode
+4. 🟡 **Billing/Stripe** — cobros automáticos por plan
+5. 🟡 **Compra automática VPS** — desde panel via OVH API
+6. 🟡 **Mejorar OCR/RAG worker** — desde workspace nexo-worker
+7. 🟢 **Logs provisioning en vivo** — ver setup-vps.sh en tiempo real
+8. 🟢 **Multi-usuario** — roles admin/viewer
