@@ -1,6 +1,6 @@
 # 📋 Contexto del Proyecto — Nexo Hub
 
-> **Última actualización**: 2026-03-07
+> **Última actualización**: 2026-03-09
 > **Estado**: ✅ Desplegado en VPS. 4 repos: nexo-hub, nexo-core, nexo-extensions, nexo-worker.
 
 ---
@@ -69,6 +69,12 @@ Páginas: `login`, `dashboard`, `clients`, `matrices`, `matrix-detail`, `vps`, `
 | BD | Compartida con la Matriz principal por ahora |
 | Deploy | PM2 (backend) + Nginx estático (frontend) |
 
+### 2026-03-09 — OneDrive sync fix, workflows propagation
+
+- ✅ **Fix sync OneDrive**: `.agent` → `_agent` en nexo-hub (OneDrive no sincroniza carpetas con `.`)
+- ✅ **Workflows copiados**: `_agent/workflows/` (28 workflows) clonados a nexo-core y nexo-worker
+- ✅ **nexo-extensions**: `.agents` → `_agents` en raíz + `_agent/workflows/` clonado en 15 extensiones, 5 nexo-template-*, 5 templates/*
+
 ### 2026-03-07 — OVH Discovery, SSH key automation, worker extraction
 
 - ✅ **OVH VPS Discovery**: sección en Nodos VPS que muestra VPS de la cuenta OVH
@@ -125,13 +131,35 @@ Páginas: `login`, `dashboard`, `clients`, `matrices`, `matrix-detail`, `vps`, `
 
 ---
 
+## 🧭 Decisiones Estratégicas (2026-03-07 — Análisis Manus.im)
+
+> Decisiones del análisis competitivo que afectan a `nexo-hub`.
+
+| Decisión | Impacto en Hub |
+|----------|---------------|
+| **Dashboard de consumo** | Nuevo módulo: métricas de uso, tokens consumidos, costes por instancia |
+| **Skills Marketplace real** | Evolucionar marketplace a plataforma abierta para terceros |
+| **Worker = manos** | El panel debe gestionar múltiples workers (no solo OCR). Heartbeats generalizados |
+| **Adoptar MCP** | Catálogo de paquetes debe soportar conectores MCP además de los propios |
+
+---
+
 ## 🚀 Próximos Pasos
 
-1. 🔴 **Worker heartbeats** — worker-01 reporte estado al panel (Live Status)
-2. 🔴 **Test E2E provisioning** — crear una matriz real desde el panel
-3. 🔴 **Dashboard métricas reales** — transicionar del Demo Mode
-4. 🟡 **Billing/Stripe** — cobros automáticos por plan
-5. 🟡 **Compra automática VPS** — desde panel via OVH API
-6. 🟡 **Mejorar OCR/RAG worker** — desde workspace nexo-worker
-7. 🟢 **Logs provisioning en vivo** — ver setup-vps.sh en tiempo real
-8. 🟢 **Multi-usuario** — roles admin/viewer
+### 🔥 Urgente
+
+1. **Worker heartbeats** — worker-01 reporte estado al panel (Live Status)
+2. **Test E2E provisioning** — crear una matriz real desde el panel
+3. **Dashboard métricas reales** — transicionar del Demo Mode
+
+### 🔴 Alta prioridad
+
+1. **Dashboard de consumo** — métricas uso, tokens, costes por instancia
+2. **Billing/Stripe** — cobros automáticos por plan
+
+### 🟡 Media prioridad
+
+1. **Skills Marketplace** — abrir a terceros con revisión + sandbox
+2. **Compra automática VPS** — desde panel via OVH API
+3. **Logs provisioning en vivo** — ver setup-vps.sh en tiempo real
+4. **Multi-usuario** — roles admin/viewer
