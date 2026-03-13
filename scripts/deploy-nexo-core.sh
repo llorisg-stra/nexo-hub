@@ -15,7 +15,7 @@ set -euo pipefail
 # --- Parámetros ---
 CLIENT_NAME="${1:?ERROR: Falta CLIENT_NAME (ej: lamadrid)}"
 DOMAIN="${2:?ERROR: Falta DOMAIN (ej: lamadrid.nexo.strategialaboratory.com)}"
-REPO_URL="${3:-https://github.com/llorisg-stra/nexo-core.git}"
+REPO_URL="${3:-https://github.com/strategialabsorg/nexo-core.git}"
 BRANCH="${4:-main}"
 
 # --- Configuración ---

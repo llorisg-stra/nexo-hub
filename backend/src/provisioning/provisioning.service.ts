@@ -74,7 +74,7 @@ export class ProvisioningService {
         const subdomain = `${slug}.strategialaboratory.com`;
         const dbPassword = this.templates.generatePassword();
         const n8nPassword = this.templates.generatePassword();
-        const repoUrl = this.config.get<string>('MATRIZ_REPO_URL', 'https://github.com/llorisg-stra/nexo-core.git');
+        const repoUrl = this.config.get<string>('MATRIZ_REPO_URL', 'https://github.com/strategialabsorg/nexo-core.git');
         const baseDir = `/home/${vps.sshUser}/instances/${slug}`;
 
         // Create the matrix record
@@ -538,7 +538,7 @@ export class ProvisioningService {
         const githubPat = this.config.get<string>('GITHUB_PAT', '');
         const repoUrl = this.config.get<string>(
             'MATRIZ_REPO_URL',
-            'https://github.com/llorisg-stra/nexo-core.git',
+            'https://github.com/strategialabsorg/nexo-core.git',
         );
 
         const commands: string[] = [];

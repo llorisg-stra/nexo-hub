@@ -15,9 +15,9 @@ Panel de administración central para gestionar todas las matrices (instancias d
 
 | Campo | Valor |
 |-------|-------|
-| Usuario | llorisg-stra |
+| Organización | strategialabsorg |
 | Repositorio | nexo-hub |
-| URL | <https://github.com/llorisg-stra/nexo-hub> |
+| URL | <https://github.com/strategialabsorg/nexo-hub> |
 | Rama principal | main |
 | Visibilidad | Privado |
 
